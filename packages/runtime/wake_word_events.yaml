@@ -1,36 +1,44 @@
-# Official MWW trigger; user automations coexist through normal package merging.
+# 부팅 시작 설정을 별도 패키지로 병합합니다.
 packages:
   mww_start: !include mww_safe_start.yaml
 
+# Runtime Controller가 기존 MWW 컴포넌트의 상태를 관찰합니다.
 runtime_controller:
   observe:
     micro_wake_word: mww
 
-# 2026_1118_1256_15     
+# 웨이크워드 감지 컴포넌트
 micro_wake_word:
   id: mww
-  
-  # 기존 microphone 설정은 그대로 유지
+
+  # 기존 패키지의 microphone 설정은 유지하고,
+  # 모델은 alexa로 설정합니다.
   models:
     - model: alexa
       id: alexa_model
-      
+
+  # 감지 후 MWW 자체를 자동 정지하지 않습니다.
   stop_after_detection: false
 
   on_wake_word_detected:
-    - globals.set:
-        id: g_last_wake_word
-        value: !lambda 'return wake_word;'
     then:
+      - globals.set:
+          id: g_last_wake_word
+          value: !lambda 'return wake_word;'
+
       - script.execute:
           id: wake_assist_ready
-          wake_word: !lambda return wake_word;
-          
+          wake_word: !lambda 'return wake_word;'
+
+# Voice Assistant 연결·종료·오류 후 MWW 준비 스크립트를 실행합니다.
 voice_assistant:
   id: va
+
   on_client_connected:
     - script.execute: start_mww_when_ready
+
   on_end:
     - script.execute: start_mww_when_ready
+
   on_error:
     - script.execute: start_mww_when_ready
