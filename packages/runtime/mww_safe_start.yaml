@@ -1,3 +1,17 @@
+# MWW가 아직 실행 중이 아닐 때만 부팅 후 시작합니다.
+# 웨이크워드 감지 처리는 wake_word_events.yaml에서만 실행합니다.
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - delay: 3s
+        - if:
+            condition:
+              not:
+                micro_wake_word.is_running:
+            then:
+              - micro_wake_word.start: {}
 # Safe Micro Wake Word start helper for full runtime devices.
 #
 # This package owns the guarded start policy only. The optional task-priority
