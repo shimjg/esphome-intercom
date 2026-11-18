@@ -1,0 +1,472 @@
+# =============================================================================
+# GENERIC ESP32-S3 FULL NATIVE - ESPHome native audio, no ESP AEC
+# Profile: FULL / native ESPHome audio / no software AEC
+# Composition: Preset + component bindings + shared mono mixer/player; native I2S endpoints below.
+# Runtime facts: native media/VoIP/Wi-Fi/mute listeners; shared VA/MWW callbacks.
+# YAML keeps user controls, board wiring and presentation hooks.
+# Support: https://github.com/sponsors/n-IA-hane
+# =============================================================================
+#
+# CAPTURE: native ESPHome I2S at 16 kHz; no esp_audio_stack or software AEC.
+# [INMP441 / RX I2S bus]
+#            │
+#            ▼
+# [native_mic_raw: stereo, 32-bit samples]
+#            │
+#            ├──► [va_mic_source: channel 1, 16-bit] ────► VA
+#            ├──► [mww_mic_source: channel 1, 16-bit] ───► MWW (barge-in)
+#            └──► [voip_mic_source: channel 1, 16-bit] ──► VoIP TX
+# An external front-end may provide processed audio; this YAML adds no AEC REF.
+#
+# PLAYBACK: speaker_media_player owns the media + announcement pipelines.
+#       [HTTP / Sendspin]          [VA TTS / HTTP / files]              [VoIP RX]
+#               │                             │                             │
+#               ▼                             ▼                             │
+#       [media_pipeline]           [announcement_pipeline]                  │
+#               │                             │                             │
+#               ▼                             ▼                             ▼
+#     [media_speaker_input]          [tts_speaker_input]          [voip_speaker_input]
+#           resampler                     resampler                     resampler
+#               │                             │                             │
+#               ▼                             ▼                             ▼
+#      [media_mixer_input]            [tts_mixer_input]            [voip_mixer_input]
+#               │                             │                             │
+#               └─────────────────────────────┼─────────────────────────────┘
+#                                             ▼
+#                              ┌─────────────────────────────┐
+#                              │   audio_mixer: 48 kHz mono  │
+#                              └──────────────┬──────────────┘
+#                                             ▼
+#                                       [hw_speaker]
+#                                             │
+#                                             ▼
+#                        [native i2s_audio TX → MAX98357A → speaker]
+#
+# The three *_speaker_input nodes are resamplers; *_mixer_input are mixer ports.
+# TTS, ringtone and timer files share the announcement pipeline, not VoIP RX.
+# Reference labels above describe configured signal sources, not extra I2S buses.
+#
+# BOARD, WIRING AND USER CONTROLS
+# -------------------------------
+# Generic target: ESP32-S3 board with PSRAM and native ESPHome
+# microphone/speaker components. The tested example uses one INMP441
+# microphone and one MAX98357A amplifier on separate I2S buses.
+#
+# This profile keeps the full-experience ESPHome facade (VA, MWW, media player,
+# VoIP, phonebook, LEDs, HA API, diagnostics), but deliberately uses native
+# ESPHome i2s_audio microphone/speaker components instead of esp_audio_stack.
+#
+# Intended use:
+#   - hardware codecs/front-ends that already provide processed/AEC audio
+#     before ESPHome, for example XMOS-based boards;
+#   - regression testing voip_stack standalone against standard ESPHome audio;
+#   - simple dual-I2S MEMS + amplifier builds where echo cancellation is not
+#     needed.
+#
+# Important: native ESPHome microphone/speaker components do not provide
+# software echo cancellation. With a plain INMP441 + MAX98357A setup, speaker
+# echo will not be removed. If you need software AEC/AFE, read the
+# esp_audio_stack documentation or use a maintained full AEC/AFE YAML.
+#
+# Endpoint mode: full_duplex. The voip-only esphome-native folder contains
+# dedicated mic-only and speaker-only variants; this full-experience profile
+# keeps both audio directions because VA, MWW and media player require them.
+#
+# Tested hardware: Freenove ESP32-S3-WROOM CAM / FNK0085, camera module removed.
+# Tested chip/memory: ESP32-S3 N8R8, 8 MB flash, 8 MB OPI PSRAM.
+# Tested modules: INMP441 digital MEMS microphone, MAX98357A I2S amplifier.
+#
+# Wiring:
+#   INMP441:
+#     SCK/BCLK -> GPIO9
+#     WS/LRCLK -> GPIO10
+#     SD/DOUT  -> GPIO11
+#     L/R      -> 3V3, tied locally with VDD so the mic outputs right channel
+#     VDD      -> 3V3
+#     GND      -> GND
+#
+#   MAX98357A:
+#     BCLK     -> GPIO12
+#     LRC/WS   -> GPIO13
+#     DIN      -> GPIO14
+#     SD/EN    -> GPIO18 (optional; tie high instead if your board prefers)
+#     VIN      -> 5V or 3V3 according to your MAX98357A module
+#     GND      -> GND
+# =============================================================================
+# =============================================================================
+# PROJECT SETUP
+#  사용방법
+# ==============================================================================
+# 기본 패키지>> 현재 파일을 esphome의 폴더에 폴더를 (packages_all)만들고 파일을 저장하고 연결
+# ==============================================================================
+# packages:
+#   # S:\esphome\packages_all\generic-s3-full-esphome-native.yaml
+#   - !include packages_all/generic-s3-full-esphome-native.yaml
+# ==============================================================================
+# 파일은 github://shimjg/esphome-intercom 연결시 수정 정보에 연결 구성입니다.
+# =============================================================================
+
+substitutions:
+  gmf_ai_audio_source: ""
+  firmware_features: [voice, wake_word, voip, music, sendspin, timers, status_led, diagnostics]
+  name: generic-s3-full-native
+  friendly_name: Generic S3 Full Native
+
+  ext_components_source: "github://shimjg/esphome-intercom@main"
+  voip_stack_components_source: "github://n-IA-hane/esphome-voip-stack@main"
+  audio_stack_components_source: "github://n-IA-hane/esphome-audio-stack@main"
+  runtime_controller_components_source: "github://n-IA-hane/esphome-runtime-controller@main"
+  assets_base: "https://github.com/shimjg/esphome-intercom/raw/main/"
+  mic_id: native_mic_raw
+
+  runtime_controller_led_preset: rgb_single
+
+# ---------------------------------------------------------
+#   # Pinout: native microphone I2S bus
+#   # ---------------------------------------------------------------------------
+# # - INMP441 SCK    : GPIO11
+# # - INMP441 WS     : GPIO12
+# # - INMP441 SD     : GPIO16  
+#   # ---------------------------------------------------------------------------
+#   # INMP441 → ESP32-S3
+#   # SCK = I2S BCLK
+#   # WS  = I2S LRCLK
+#   # SD  = 마이크 데이터 출력 → ESP32 입력
+#   # L/R -> 3V3, tied locally with VDD so the mic outputs right channel
+  rx_i2s_bclk_pin: GPIO11
+  rx_i2s_lrclk_pin: GPIO12
+  rx_i2s_din_pin: GPIO16
+#   # ---------------------------------------------------------------------------
+#   # Pinout: native speaker I2S bus
+#   # ---------------------------------------------------------------------------  
+#   # 배선:
+# # - PCM5102A BCLK  : GPIO17
+# # - PCM5102A LRCLK : GPIO18
+# # - PCM5102A DIN   : GPIO13
+#   # ---------------------------------------------------------------------------
+  tx_i2s_bclk_pin: GPIO17
+  tx_i2s_lrclk_pin: GPIO18
+  tx_i2s_dout_pin: GPIO13
+
+#   # ---------------------------------------------------------------------------
+#   # Pinout: speaker amplifier and optional status LED
+#   # ---------------------------------------------------------------------------
+  # speaker_enable_pin: GPIO4
+  # status_led_pin: GPIO48
+  # status_led_chipset: WS2812
+  # status_led_rgb_order: GRB
+####################################################################
+  key1_gpio: GPIO5
+  key2_gpio: GPIO7
+####################################################################
+####################################################################
+# Shared packages: full VA/VoIP runtime, runtime controller, phonebook sync,
+# native diagnostics and the 48 kHz mixer/media-player path.
+
+# packages:
+#   device: github://n-IA-hane/esphome-intercom/packages/devices/generic-s3-native.yaml@main
+packages:
+  device: github://shimjg/esphome-intercom/packages/devices/generic-s3-native.yaml
+# https://github.com/shimjg/esphome-intercom.git
+  
+##################################################################### generic-s3-afe.yaml
+ 
+
+# =============================================================================
+# Voice Assistant manual control
+# KEY1: GPIO5 to 3.3V (INPUT_PULLDOWN)
+# KEY2: GPIO7 to 3.3V (INPUT_PULLDOWN)
+# GPIO2 remains reserved for speaker_enable_pin.
+# =============================================================================
+globals:
+  # sound_to_tts가 ON일 때만 STT/TTS 문장을 HA 텍스트 센서에 게시합니다.
+  - id: sound_to_tts_enabled
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+switch:
+  # ON: Assist 마이크 입력(STT)과 TTS 출력 문장을 텍스트 센서에 기록합니다.
+  # OFF: 이후 문장 기록을 중단합니다. 원래 음성 대화와 미디어 재생은 계속됩니다.
+  - platform: template
+    id: sound_to_tts_switch
+    name: "sound_to_tts 음성 문장 기록"
+    icon: "mdi:microphone-message"
+    lambda: return id(sound_to_tts_enabled);
+    turn_on_action:
+      - globals.set:
+          id: sound_to_tts_enabled
+          value: "true"
+    turn_off_action:
+      - globals.set:
+          id: sound_to_tts_enabled
+          value: "false"
+
+  # Alexa 안내 MP3를 재생합니다.
+  # MP3 재생 완료 후 이 스위치를 OFF로 게시하여 청취 시작 신호로 사용합니다.
+  - platform: template
+    name: "off.mp3  정지 스위치"
+    id: off_mp3_switch
+    icon: "mdi:volume-off"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - media_player.stop:
+          id: speaker_media_player
+      - delay: 200ms
+      - media_player.play_media:
+          id: speaker_media_player
+          media_url: "${ha_base_url}/local/media/off.mp3"
+      # 1초 뒤 스위치 상태만 OFF로 되돌립니다.
+      # switch.template.publish는 turn_off_action을 실행하지 않아 MP3 재생을 끊지 않습니다.
+      - delay: 1s
+      - switch.template.publish:
+          id: off_mp3_switch
+          state: OFF
+
+    turn_off_action:
+      - media_player.stop:
+          id: speaker_media_player
+
+  - platform: template
+    name: "on.mp3 재생 스위치"
+    id: on_mp3_switch
+    icon: "mdi:volume-high"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - media_player.stop:
+          id: speaker_media_player
+      - delay: 200ms
+      - media_player.play_media:
+          id: speaker_media_player
+          media_url: "${ha_base_url}/local/media/on.mp3"
+      # 1초 뒤 스위치 상태만 OFF로 되돌립니다.
+      # switch.template.publish는 turn_off_action을 실행하지 않아 MP3 재생을 끊지 않습니다.
+      - delay: 2s
+      - switch.template.publish:
+          id: on_mp3_switch
+          state: OFF
+
+    turn_off_action:
+      - media_player.stop:
+          id: speaker_media_player
+
+  - platform: template
+    name: "master_speak.mp3 주인님 말씀 하세요"
+    id: master_speak_mp3_switch
+    icon: "mdi:volume-high"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - media_player.stop:
+          id: speaker_media_player
+      - delay: 200ms
+      # Home Assistant TTS 엔진의 안내 음성을 IP63 media_player로 직접 출력합니다.
+      - homeassistant.action:
+          action: tts.speak
+          data:
+            entity_id: tts.edge_tts
+            media_player_entity_id: media_player.pcm5102_audio_ip63
+            message: "주인님 말씀하세요 엘렉사 입니다"
+      # sound_to_tts가 켜져 있을 때 안내 문구를 문자 센서에 기록합니다.
+      - if:
+          condition:
+            lambda: return id(sound_to_tts_enabled);
+          then:
+            - text_sensor.template.publish:
+                id: wake_prompt_text
+                state: "주인님 말씀하세요 엘렉사 입니다"
+            - text_sensor.template.publish:
+                id: all_voice_output_text
+                state: "출력(안내 TTS): 주인님 말씀하세요 엘렉사 입니다"
+      # HA TTS 안내가 speaker_media_player에서 시작된 뒤 종료될 때까지 기다립니다.
+      - wait_until:
+          condition:
+            media_player.is_announcing: speaker_media_player
+          timeout: 10s
+      - wait_until:
+          condition:
+            not:
+              media_player.is_announcing: speaker_media_player
+          timeout: 20s
+      # OFF 게시가 안내 TTS 완료 신호입니다. turn_off_action을 실행하지 않습니다.
+      - switch.template.publish:
+          id: master_speak_mp3_switch
+          state: OFF
+
+    turn_off_action:
+      - media_player.stop:
+          id: speaker_media_player
+#########################################################          
+ 
+ #########################################################
+  # Home Assistant에 표시되는 명령형 스위치입니다. 켜면 동작을 실행하고 0.5초 후 자동으로 꺼집니다.
+  - platform: template
+    id: key1_voice_call_switch
+    name: "KEY1 Assist 노랑7호출"
+    icon: mdi:microphone
+    # HA 스위치 상태는 GPIO7 물리 스위치 상태를 따라갑니다.
+    lambda: return id(key1_voice_call).state;    
+    turn_on_action:
+      - script.execute:
+          id: wake_assist_ready
+          wake_word: "okay Alexa"
+ 
+#########################################################      
+  - platform: template
+    id: key2_voice_call_stop_switch
+    name: "KEY2 Assist 검정5중지"
+    icon: mdi:stop-circle-outline
+    # HA 스위치 상태는 GPIO5 물리 스위치 상태를 따라갑니다.
+    lambda: return id(key2_voice_call_stop).state;
+    turn_on_action:
+      - script.execute: stop_voice_call
+#########################################################
+
+
+binary_sensor:
+#########################################################
+  - platform: gpio
+    id: key1_voice_call
+    name: "KEY1 음성 노랑7호출"
+    internal: true
+    pin:
+      number: ${key1_gpio}
+      mode:
+        input: true
+        pulldown: true
+    filters:
+      - delayed_on: 30ms
+      - delayed_off: 30ms
+    on_press:
+      - switch.turn_on: key1_voice_call_switch
+      
+#########################################################
+  - platform: gpio
+    id: key2_voice_call_stop
+    name: "KEY2 GPIO5 음성 호출 중지 입력"
+    internal: true
+    pin:
+      number: ${key2_gpio}
+      mode:
+        input: true
+        pulldown: true
+    filters:
+      - delayed_on: 30ms
+      - delayed_off: 30ms
+    on_press:
+      # GPIO5이 HIGH가 되면 즉시 음성 호출을 중지합니다.
+      - script.execute: stop_voice_call
+      - switch.turn_on: off_mp3_switch # off.mp3  정지 스위치
+#########################################################
+script:
+  # Alexa 호출과 KEY1 호출은 모두 MP3 안내 후 마이크 청취를 시작합니다.
+  - id: start_voice_call
+    mode: restart
+    then:
+      - script.execute:
+          id: wake_assist_ready
+          wake_word: "Alexa"
+
+  - id: wake_assist_ready
+    mode: restart
+    parameters:
+      wake_word: string
+    then:
+      - if:
+          condition:
+            voice_assistant.connected: {}
+          then:
+            - micro_wake_word.stop: {}
+            - voice_assistant.stop: {}
+            - media_player.stop:
+                id: speaker_media_player
+            # 알렉사 호출 안내 TTS 스위치를 초기화한 뒤 다시 켭니다.
+            - switch.turn_off: master_speak_mp3_switch
+            - switch.turn_on: master_speak_mp3_switch
+            - wait_until:
+                condition:
+                  lambda: return id(master_speak_mp3_switch).state;
+                timeout: 3s
+            # 안내 TTS가 끝나 스위치가 OFF로 바뀌면 마이크 청취를 시작합니다.
+            - wait_until:
+                condition:
+                  lambda: return !id(master_speak_mp3_switch).state;
+                timeout: 25s
+            - voice_assistant.start:
+                wake_word: !lambda return wake_word;
+            - switch.template.publish:
+                id: key1_voice_call_switch
+                state: ON
+          else:
+            - logger.log:
+                level: WARN
+                format: "Voice Assistant is not connected to Home Assistant; prompt flow skipped"
+
+  - id: stop_voice_call
+    mode: restart
+    then:
+      - micro_wake_word.stop: {}
+      - voice_assistant.stop: {}
+      - media_player.stop:
+          id: speaker_media_player
+
+# The package does not expose a Micro Wake Word ID named `mww`; no component extension is declared here.
+
+# These callbacks merge into the Voice Assistant component supplied by the
+# device package; they do not declare a second Voice Assistant instance.
+# ESPHome provides x as the recognized text for on_stt_end and the spoken text
+# for on_tts_start.
+voice_assistant:
+  on_stt_end:
+    - if:
+        condition:
+          lambda: return id(sound_to_tts_enabled);
+        then:
+          - text_sensor.template.publish:
+              id: recognized_speech_text
+              state: !lambda return x;
+          - text_sensor.template.publish:
+              id: all_voice_output_text
+              state: !lambda |-
+                return std::string("입력(STT): ") + x;
+
+  on_tts_start:
+    - if:
+        condition:
+          lambda: return id(sound_to_tts_enabled);
+        then:
+          - text_sensor.template.publish:
+              id: spoken_response_text
+              state: !lambda return x;
+          - text_sensor.template.publish:
+              id: all_voice_output_text
+              state: !lambda |-
+                return std::string("출력(TTS): ") + x;
+
+# 음성 안내 및 STT/TTS 진단 센서
+text_sensor:
+  - platform: template
+    id: wake_prompt_text
+    name: "OK Alexa 안내 문장 WAKE"
+    icon: "mdi:message-text"
+    update_interval: never
+
+  - platform: template
+    id: recognized_speech_text
+    name: "최근 음성인식 문장 STT"
+    icon: "mdi:microphone-message"
+    update_interval: never
+
+  - platform: template
+    id: spoken_response_text
+    name: "최근 음성응답 문장 TTS"
+    icon: "mdi:account-voice"
+    update_interval: never
+
+  - platform: template
+    id: all_voice_output_text
+    name: "최근 음성 입출력 전체"
+    icon: "mdi:message-play"
+    update_interval: never
