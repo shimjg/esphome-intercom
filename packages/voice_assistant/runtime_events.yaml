@@ -1,46 +1,80 @@
-# Voice Assistant application content and local command handling.
-#
-# Runtime Controller observes lifecycle triggers automatically. These actions
-# retain application behavior beyond state forwarding.
-
+# 이 블록은 패키지의 기존 voice_assistant 정의에 적용합니다.
 voice_assistant:
   id: va
   media_player: speaker_media_player
+
   on_stt_end:
+    # 인식한 음성 명령
+    - text_sensor.template.publish:
+        id: recognized_speech_text
+        state: !lambda 'return x;'
+
+    # 최근 음성 입출력의 질문 부분
+    - text_sensor.template.publish:
+        id: all_voice_output_text
+        state: !lambda 'return std::string("인식: ") + x;'
+
+    # 기존 화면/UI 갱신 동작
     - script.execute:
         id: ui_stt_ended
         text: !lambda 'return x;'
-    # Commands that silence the current satellite must not be delegated to the
-    # selected conversation agent. Agents differ in local-intent handling and
-    # may otherwise answer the phrase instead of stopping their announcement.
+
+    # 기존의 현재 위성 음성 정지 명령 처리
     - if:
         condition:
           lambda: |-
             std::string command = x;
             std::transform(command.begin(), command.end(), command.begin(),
                            [](unsigned char c) { return std::tolower(c); });
-            while (!command.empty() && std::isspace(static_cast<unsigned char>(command.front())))
+            while (!command.empty() &&
+                   std::isspace(static_cast<unsigned char>(command.front())))
               command.erase(command.begin());
-            while (!command.empty() && (std::isspace(static_cast<unsigned char>(command.back())) ||
-                   command.back() == '.' || command.back() == '!' || command.back() == '?'))
+            while (!command.empty() &&
+                   (std::isspace(static_cast<unsigned char>(command.back())) ||
+                    command.back() == '.' || command.back() == '!' ||
+                    command.back() == '?'))
               command.pop_back();
+
             return command == "stai zitta" || command == "sta zitta" ||
-                   command == "zitta" || command == "zitto" || command == "taci" ||
-                   command == "basta" || command == "annulla" ||
-                   command == "ferma la risposta" || command == "smetti di parlare";
+                   command == "zitta" || command == "zitto" ||
+                   command == "taci" || command == "basta" ||
+                   command == "annulla" || command == "ferma la risposta" ||
+                   command == "smetti di parlare";
         then:
           - script.execute: voice_quiet_internal
+
   on_tts_start:
+    # HA가 음성으로 응답하기 시작한 문장
+    - text_sensor.template.publish:
+        id: spoken_response_text
+        state: !lambda 'return x;'
+
+    # 최근 인식 문장과 응답 문장을 함께 표시
+    - text_sensor.template.publish:
+        id: all_voice_output_text
+        state: !lambda |-
+          std::string recognized = id(recognized_speech_text).state;
+          if (recognized == "unknown" || recognized == "unavailable") {
+            recognized.clear();
+          }
+
+          if (recognized.empty()) {
+            return std::string("응답: ") + x;
+          }
+
+          return std::string("인식: ") + recognized +
+                 "\n응답: " + x;
+
     - logger.log:
         level: INFO
         tag: va
         format: "VA: tts_start"
-    # ESPHome's on_tts_start payload is the assistant response text. Populate
-    # text/mood before committing the responding state so renderers never see
-    # an empty or transport-URL response frame.
+
+    # 기존 화면/UI 갱신 동작
     - script.execute:
         id: ui_tts_started
         text: !lambda 'return x;'
+
   on_client_connected:
     - logger.log:
         tag: va
