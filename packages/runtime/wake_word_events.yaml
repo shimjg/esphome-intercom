@@ -16,7 +16,7 @@ micro_wake_word:
   models:
     - model: alexa
       id: alexa_model
-      probability_cutoff: 0.60 # 음성인식 감지 수정 감지되지 않으면 probability_cutoff를 0.55까지 낮춰 시험할 수 있습니
+      probability_cutoff: 0.55 # 음성인식 감지 수정 감지되지 않으면 probability_cutoff를 0.55까지 낮춰 시험할 수 있습니
       sliding_window_size: 8 # 음성인식 감지 수정
       
   # 감지 후 MWW 자체를 자동 정지하지 않습니다.
