@@ -166,10 +166,10 @@ substitutions:
 #   device: github://n-IA-hane/esphome-intercom/packages/devices/generic-s3-native.yaml@main
 packages:
   device: github://shimjg/esphome-intercom/packages/devices/generic-s3-native.yaml
-# https://github.com/shimjg/esphome-intercom.git
+# # https://github.com/shimjg/esphome-intercom.git
 
 #####################################################################
-
+ 
 # =============================================================================
 # Voice Assistant manual control
 # KEY1: GPIO5 to 3.3V (INPUT_PULLDOWN)
@@ -182,7 +182,10 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
-
+speaker:
+  - id: !extend hw_speaker
+    channel: stereo
+    
 switch:
   # ON: Assist 마이크 입력(STT)과 TTS 출력 문장을 텍스트 센서에 기록합니다.
   # OFF: 이후 문장 기록을 중단합니다. 원래 음성 대화와 미디어 재생은 계속됩니다.
