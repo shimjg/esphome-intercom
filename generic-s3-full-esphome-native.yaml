@@ -85,25 +85,24 @@
 #     VDD      -> 3V3
 #     GND      -> GND
 #
-#   MAX98357A or PCM5102  구성입니다
+#   MAX98357A:
 #     BCLK     -> GPIO12
 #     LRC/WS   -> GPIO13
 #     DIN      -> GPIO14
 #     SD/EN    -> GPIO18 (optional; tie high instead if your board prefers)
-#     VIN      -> 5V or 3V3 according to your MAX98357A module * 중요
+#     VIN      -> 5V or 3V3 according to your MAX98357A module
 #     GND      -> GND
-# =============================================================================
+
 # =============================================================================
 # PROJECT SETUP
-#  사용방법
+# 
 # ==============================================================================
-# 기본 패키지>> 현재 파일을 esphome의 폴더에 폴더를 (packages_all)만들고 파일을 저장하고 연결
+# 기본 패키지
 # ==============================================================================
 # packages:
 #   # S:\esphome\packages_all\generic-s3-full-esphome-native.yaml
 #   - !include packages_all/generic-s3-full-esphome-native.yaml
 # ==============================================================================
-# 파일은 github://shimjg/esphome-intercom 연결시 수정 정보에 연결 구성입니다.
 # =============================================================================
 
 substitutions:
@@ -168,9 +167,8 @@ substitutions:
 packages:
   device: github://shimjg/esphome-intercom/packages/devices/generic-s3-native.yaml
 # https://github.com/shimjg/esphome-intercom.git
-  
-##################################################################### generic-s3-afe.yaml
- 
+
+#####################################################################
 
 # =============================================================================
 # Voice Assistant manual control
