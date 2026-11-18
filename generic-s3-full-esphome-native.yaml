@@ -85,12 +85,12 @@
 #     VDD      -> 3V3
 #     GND      -> GND
 #
-#   MAX98357A:
+#   MAX98357A or PCM5102  구성입니다
 #     BCLK     -> GPIO12
 #     LRC/WS   -> GPIO13
 #     DIN      -> GPIO14
 #     SD/EN    -> GPIO18 (optional; tie high instead if your board prefers)
-#     VIN      -> 5V or 3V3 according to your MAX98357A module
+#     VIN      -> 5V or 3V3 according to your MAX98357A module * 중요
 #     GND      -> GND
 # =============================================================================
 # =============================================================================
