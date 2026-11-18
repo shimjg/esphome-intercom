@@ -5,27 +5,27 @@ packages:
 runtime_controller:
   observe:
     micro_wake_word: mww
+
 # 2026_1118_1256_15     
 micro_wake_word:
   id: mww
-
+  
   # 기존 microphone 설정은 그대로 유지
   models:
     - model: alexa
       id: alexa_model
-
-  on_wake_word_detected:
-    then:
-      - script.execute:
-          id: wake_assist_ready
-          wake_word: !lambda return wake_word;
- 
+      
   stop_after_detection: false
+
   on_wake_word_detected:
     - globals.set:
         id: g_last_wake_word
         value: !lambda 'return wake_word;'
-
+    then:
+      - script.execute:
+          id: wake_assist_ready
+          wake_word: !lambda return wake_word;
+          
 voice_assistant:
   id: va
   on_client_connected:
