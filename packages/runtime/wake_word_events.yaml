@@ -44,3 +44,29 @@ voice_assistant:
 
   on_error:
     - script.execute: start_mww_when_ready
+    
+  on_stt_end:
+    - if:
+        condition:
+          lambda: return id(sound_to_tts_enabled);
+        then:
+          - text_sensor.template.publish:
+              id: recognized_speech_text
+              state: !lambda return x;
+          - text_sensor.template.publish:
+              id: all_voice_output_text
+              state: !lambda |-
+                return std::string("입력(STT): ") + x;
+
+  on_tts_start:
+    - if:
+        condition:
+          lambda: return id(sound_to_tts_enabled);
+        then:
+          - text_sensor.template.publish:
+              id: spoken_response_text
+              state: !lambda return x;
+          - text_sensor.template.publish:
+              id: all_voice_output_text
+              state: !lambda |-
+                return std::string("출력(TTS): ") + x;
